@@ -1,0 +1,194 @@
+# =============================================================================
+# PaymentServices.Shared — Azure DevOps CI/CD Pipeline
+# Builds, versions, packs, and publishes the NuGet package to Azure Artifacts.
+#
+# Versioning strategy:
+#   Major.Minor are set in variables below.
+#   Patch is the build counter (auto-incremented by ADO).
+#   Pre-release suffix appended for non-main branches: e.g. 1.2.45-preview.3
+#
+# Triggers:
+#   - main branch  → publish as stable release
+#   - other branches → publish as pre-release (for integration testing)
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+      - hotfix/*
+  paths:
+    include:
+      - src/**
+
+pr:
+  branches:
+    include:
+      - main
+
+# ---------------------------------------------------------------------------
+# Variables
+# ---------------------------------------------------------------------------
+variables:
+  # Package version — bump Major/Minor manually on breaking changes
+  majorVersion: '1'
+  minorVersion: '0'
+  patchVersion: '$(Build.BuildId)'
+  stableVersion: '$(majorVersion).$(minorVersion).$(patchVersion)'
+  prereleaseVersion: '$(majorVersion).$(minorVersion).$(patchVersion)-preview.$(Build.BuildId)'
+
+  # Build configuration
+  buildConfiguration: 'Release'
+  projectPath: 'src/PaymentServices.Shared.csproj'
+
+  # Azure Artifacts feed — update to your org/feed name
+  artifactsFeedName: 'PaymentServices'
+  nugetServiceConnection: 'PaymentServices-NuGet-Feed'
+
+  # Agent pool
+  vmImage: 'ubuntu-latest'
+
+# ---------------------------------------------------------------------------
+# Stages
+# ---------------------------------------------------------------------------
+stages:
+
+  # ---------------------------------------------------------------------------
+  # Stage 1: Build & Test
+  # ---------------------------------------------------------------------------
+  - stage: Build
+    displayName: 'Build & Test'
+    jobs:
+      - job: BuildAndTest
+        displayName: 'Build and Test'
+        pool:
+          vmImage: $(vmImage)
+
+        steps:
+          - checkout: self
+            fetchDepth: 0
+
+          # Set version based on branch
+          - script: |
+              if [ "$(Build.SourceBranchName)" = "main" ]; then
+                echo "##vso[task.setvariable variable=packageVersion]$(stableVersion)"
+                echo "Stable release: $(stableVersion)"
+              else
+                echo "##vso[task.setvariable variable=packageVersion]$(prereleaseVersion)"
+                echo "Pre-release: $(prereleaseVersion)"
+              fi
+            displayName: 'Set Package Version'
+
+          - task: UseDotNet@2
+            displayName: 'Use .NET 10'
+            inputs:
+              packageType: 'sdk'
+              version: '10.x'
+              includePreviewVersions: true
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Restore NuGet packages'
+            inputs:
+              command: 'restore'
+              projects: '$(projectPath)'
+              feedsToUse: 'select'
+              vstsFeed: '$(artifactsFeedName)'
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Build'
+            inputs:
+              command: 'build'
+              projects: '$(projectPath)'
+              arguments: >-
+                --configuration $(buildConfiguration)
+                --no-restore
+                /p:Version=$(packageVersion)
+                /p:AssemblyVersion=$(stableVersion)
+                /p:FileVersion=$(stableVersion)
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Tests'
+            inputs:
+              command: 'test'
+              projects: '**/*.Tests.csproj'
+              arguments: >-
+                --configuration $(buildConfiguration)
+                --no-build
+                --collect:"XPlat Code Coverage"
+                --results-directory $(Agent.TempDirectory)/TestResults
+              publishTestResults: true
+
+          - task: PublishCodeCoverageResults@2
+            displayName: 'Publish Code Coverage'
+            inputs:
+              summaryFileLocation: '$(Agent.TempDirectory)/TestResults/**/coverage.cobertura.xml'
+            condition: succeededOrFailed()
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Pack & Publish
+  # ---------------------------------------------------------------------------
+  - stage: Publish
+    displayName: 'Pack & Publish NuGet'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: PackAndPublish
+        displayName: 'Pack and Publish'
+        pool:
+          vmImage: $(vmImage)
+
+        steps:
+          - checkout: self
+
+          - script: |
+              if [ "$(Build.SourceBranchName)" = "main" ]; then
+                echo "##vso[task.setvariable variable=packageVersion]$(stableVersion)"
+              else
+                echo "##vso[task.setvariable variable=packageVersion]$(prereleaseVersion)"
+              fi
+            displayName: 'Set Package Version'
+
+          - task: UseDotNet@2
+            displayName: 'Use .NET 10'
+            inputs:
+              packageType: 'sdk'
+              version: '10.x'
+              includePreviewVersions: true
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Restore'
+            inputs:
+              command: 'restore'
+              projects: '$(projectPath)'
+              feedsToUse: 'select'
+              vstsFeed: '$(artifactsFeedName)'
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Pack NuGet Package'
+            inputs:
+              command: 'pack'
+              packagesToPack: '$(projectPath)'
+              configuration: $(buildConfiguration)
+              nobuild: false
+              versioningScheme: 'byEnvVar'
+              versionEnvVar: 'packageVersion'
+              outputDir: '$(Build.ArtifactStagingDirectory)/nuget'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Package Artifact'
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)/nuget'
+              artifactName: 'nuget-package'
+
+          - task: NuGetAuthenticate@1
+            displayName: 'Authenticate with Azure Artifacts'
+
+          - task: DotNetCoreCLI@2
+            displayName: 'Push to Azure Artifacts'
+            inputs:
+              command: 'push'
+              packagesToPush: '$(Build.ArtifactStagingDirectory)/nuget/*.nupkg'
+              nuGetFeedType: 'internal'
+              publishVstsFeed: '$(artifactsFeedName)'
+              allowPackageConflicts: false
