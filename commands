@@ -33,3 +33,46 @@ cd ..
 cd src
 dotnet restore
 dotnet build
+
+
+# 1. Create and enter the directory first
+mkdir PaymentServices.Shared
+cd PaymentServices.Shared
+
+# 2. Create the solution (it will use the current directory)
+dotnet new sln -n PaymentServices.Shared
+
+# 3. Create the src folder and class library inside it
+mkdir src
+cd src
+dotnet new classlib -n PaymentServices.Shared -f net10.0
+cd ..
+
+# 4. Add project to solution
+dotnet sln add src/PaymentServices.Shared.csproj
+
+# 5. Remove default file
+rm src/Class1.cs
+
+# 6. Create folder structure
+mkdir -p src/Enums
+mkdir -p src/Messages
+mkdir -p src/Models
+mkdir -p src/Interfaces
+mkdir -p src/Infrastructure
+mkdir -p src/Extensions
+mkdir -p pipelines
+
+# 7. Add packages
+cd src
+dotnet add package Microsoft.Azure.Cosmos --version 3.46.0
+dotnet add package Azure.Messaging.ServiceBus --version 7.18.4
+dotnet add package Azure.Identity --version 1.13.2
+dotnet add package System.Text.Json --version 9.0.4
+dotnet add package Microsoft.Extensions.Logging.Abstractions --version 9.0.4
+dotnet add package Microsoft.Extensions.DependencyInjection.Abstractions --version 9.0.4
+dotnet add package Microsoft.Extensions.Options --version 9.0.4
+cd ..
+
+# 8. Build to verify
+cd src && dotnet restore && dotnet build
