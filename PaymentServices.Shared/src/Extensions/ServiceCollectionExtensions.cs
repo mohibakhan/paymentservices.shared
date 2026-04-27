@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,28 +19,28 @@ public static class ServiceCollectionExtensions
     /// (production) or connection string (local development).
     /// </summary>
     public static IServiceCollection AddPaymentCosmosClient(
-    this IServiceCollection services,
-    IConfiguration configuration,
-    string prefix = "app:AppSettings")
-{
-    services.AddSingleton(sp =>
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string prefix = "app:AppSettings")
     {
-        var logger = sp.GetRequiredService<ILogger<CosmosClient>>();
-        var endpoint = configuration[$"{prefix}:COSMOS_ENDPOINT"] ?? string.Empty;
-        var connString = configuration[$"{prefix}:COSMOS_CONNSTRING"] ?? string.Empty;
-        var managedIdentityClientId = configuration["AZURE_CLIENT_ID"] ?? string.Empty;
+        services.AddSingleton(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<CosmosClient>>();
+            var endpoint = configuration[$"{prefix}:COSMOS_ENDPOINT"] ?? string.Empty;
+            var connString = configuration[$"{prefix}:COSMOS_CONNSTRING"] ?? string.Empty;
+            var managedIdentityClientId = configuration["AZURE_CLIENT_ID"] ?? string.Empty;
 
-        return CosmosClientSingleton.Create(
-            endpoint: endpoint,
-            managedIdentityClientId: string.IsNullOrWhiteSpace(managedIdentityClientId)
-                ? null : managedIdentityClientId,
-            connectionString: string.IsNullOrWhiteSpace(connString)
-                ? null : connString,
-            logger: logger);
-    });
+            return CosmosClientSingleton.Create(
+                endpoint: endpoint,
+                managedIdentityClientId: string.IsNullOrWhiteSpace(managedIdentityClientId)
+                    ? null : managedIdentityClientId,
+                connectionString: string.IsNullOrWhiteSpace(connString)
+                    ? null : connString,
+                logger: logger);
+        });
 
-    return services;
-}
+        return services;
+    }
 
     /// <summary>
     /// Registers a <see cref="Container"/> for a specific Cosmos container name.
@@ -52,12 +50,13 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration,
         string containerName,
-        string serviceKey)
+        string serviceKey,
+        string prefix = "app:AppSettings")
     {
         services.AddKeyedSingleton<Container>(serviceKey, (sp, _) =>
         {
             var client = sp.GetRequiredService<CosmosClient>();
-            var database = configuration["app:AppSettings:COSMOS_DATABASE"] ?? "payments";
+            var database = configuration[$"{prefix}:COSMOS_DATABASE"] ?? "tptch";
             return client.GetContainer(database, containerName);
         });
 
@@ -69,14 +68,16 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddPaymentServiceBusPublisher(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string prefix = "app:AppSettings")
     {
         services.AddSingleton<IServiceBusPublisher>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<ServiceBusPublisher>>();
-            var connString = configuration["app:AppSettings:SERVICE_BUS_CONNSTRING"]
-                ?? throw new InvalidOperationException("SERVICE_BUS_CONNSTRING is required.");
-            var topic = configuration["app:AppSettings:SERVICE_BUS_TOPIC"] ?? "payment-processing";
+            var connString = configuration[$"{prefix}:SERVICE_BUS_CONNSTRING"]
+                ?? throw new InvalidOperationException(
+                    $"SERVICE_BUS_CONNSTRING is required. Prefix={prefix}");
+            var topic = configuration[$"{prefix}:SERVICE_BUS_TOPIC"] ?? "payment-processing";
 
             return new ServiceBusPublisher(connString, topic, logger);
         });
@@ -90,11 +91,12 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddPaymentAppSettings(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string prefix = "app:AppSettings")
     {
         services.AddOptions<AppSettings>()
             .Configure<IConfiguration>((settings, config) =>
-                config.GetSection("app:AppSettings").Bind(settings));
+                config.GetSection(prefix).Bind(settings));
 
         services.AddOptions<TelemetryAppSettings>()
             .Configure<IConfiguration>((settings, config) =>
