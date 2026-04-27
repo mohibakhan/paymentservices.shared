@@ -21,27 +21,28 @@ public static class ServiceCollectionExtensions
     /// (production) or connection string (local development).
     /// </summary>
     public static IServiceCollection AddPaymentCosmosClient(
-        this IServiceCollection services,
-        IConfiguration configuration)
+    this IServiceCollection services,
+    IConfiguration configuration,
+    string prefix = "app:AppSettings")
+{
+    services.AddSingleton(sp =>
     {
-        services.AddSingleton(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<CosmosClient>>();
-            var endpoint = configuration["app:AppSettings:COSMOS_ENDPOINT"] ?? string.Empty;
-            var connString = configuration["app:AppSettings:COSMOS_CONNSTRING"] ?? string.Empty;
-            var managedIdentityClientId = configuration["AZURE_CLIENT_ID"] ?? string.Empty;
+        var logger = sp.GetRequiredService<ILogger<CosmosClient>>();
+        var endpoint = configuration[$"{prefix}:COSMOS_ENDPOINT"] ?? string.Empty;
+        var connString = configuration[$"{prefix}:COSMOS_CONNSTRING"] ?? string.Empty;
+        var managedIdentityClientId = configuration["AZURE_CLIENT_ID"] ?? string.Empty;
 
-            return CosmosClientSingleton.Create(
-                endpoint: endpoint,
-                managedIdentityClientId: string.IsNullOrWhiteSpace(managedIdentityClientId)
-                    ? null : managedIdentityClientId,
-                connectionString: string.IsNullOrWhiteSpace(connString)
-                    ? null : connString,
-                logger: logger);
-        });
+        return CosmosClientSingleton.Create(
+            endpoint: endpoint,
+            managedIdentityClientId: string.IsNullOrWhiteSpace(managedIdentityClientId)
+                ? null : managedIdentityClientId,
+            connectionString: string.IsNullOrWhiteSpace(connString)
+                ? null : connString,
+            logger: logger);
+    });
 
-        return services;
-    }
+    return services;
+}
 
     /// <summary>
     /// Registers a <see cref="Container"/> for a specific Cosmos container name.
